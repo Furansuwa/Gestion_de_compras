@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Inicio - Sistema de Compras</title>
+</head>
+<body>
+    <h1>¡Bienvenido, {{ user.username }}!</h1>
+    <p>Has iniciado sesión correctamente en el Sistema de Compras.</p>
+    
+    <hr>
+
+    {% if user.is_staff %}
+    <div style="margin-bottom: 20px;">
+        <h3>Opciones de Administrador</h3>
+        <a href="{% url 'admin:index' %}">
+            <button style="padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer;">
+                Ir al Panel de Administración (CRUDs)
+            </button>
+        </a>
+    </div>
+    {% endif %}
+
+    <form action="{% url 'logout' %}" method="post">
+        {% csrf_token %}
+        <button type="submit" style="padding: 10px; cursor: pointer;">Cerrar Sesión</button>
+    </form>
+</body>
+</html>
