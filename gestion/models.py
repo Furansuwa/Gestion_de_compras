@@ -1,73 +1,89 @@
 from django.db import models
+# Importar los validadores de Django
+from django.core.validators import RegexValidator, MinValueValidator
 
-# 1. Gestión de Departamentos [cite: 8, 24]
+# 1. Gestión de Departamentos
 class Departamento(models.Model):
-    nombre = models.CharField(max_length=100) # [cite: 26]
-    estado = models.BooleanField(default=True) # [cite: 27]
+    nombre = models.CharField(max_length=100)
+    estado = models.BooleanField(default=True)
 
     def __str__(self):
         return self.nombre
 
-# 2. Gestión de Unidades de Medida [cite: 11, 32]
+# 2. Gestión de Unidades de Medida
 class UnidadMedida(models.Model):
-    descripcion = models.CharField(max_length=50) # [cite: 34]
-    estado = models.BooleanField(default=True) # [cite: 35]
+    descripcion = models.CharField(max_length=50)
+    estado = models.BooleanField(default=True)
 
     def __str__(self):
         return self.descripcion
 
-# 3. Gestión de Marcas [cite: 10, 28]
+# 3. Gestión de Marcas
 class Marca(models.Model):
-    descripcion = models.CharField(max_length=50) # [cite: 30]
-    estado = models.BooleanField(default=True) # [cite: 31]
+    descripcion = models.CharField(max_length=50)
+    estado = models.BooleanField(default=True)
 
     def __str__(self):
         return self.descripcion
 
-# 4. Gestión de Proveedores [cite: 12, 36]
+# 4. Gestión de Proveedores
 class Proveedor(models.Model):
-    cedula_rnc = models.CharField(max_length=20, unique=True) # [cite: 38]
-    nombre_comercial = models.CharField(max_length=100) # [cite: 39]
-    estado = models.BooleanField(default=True) # [cite: 40]
+    # Validador de RNC/Cédula Dominicana (9 u 11 dígitos, solo números)
+    rnc_validador = RegexValidator(
+        regex=r'^(\d{9}|\d{11})$',
+        message='El RNC/Cédula debe tener 9 u 11 dígitos numéricos, sin guiones.'
+    )
+    cedula_rnc = models.CharField(max_length=11, unique=True, validators=[rnc_validador])
+    nombre_comercial = models.CharField(max_length=100)
+    estado = models.BooleanField(default=True)
 
     def __str__(self):
         return self.nombre_comercial
 
-# 5. Gestión de Empleados [cite: 7, 18]
+# 5. Gestión de Empleados
 class Empleado(models.Model):
-    cedula = models.CharField(max_length=11, unique=True) # [cite: 20]
-    nombre = models.CharField(max_length=100) # [cite: 21]
-    departamento = models.ForeignKey(Departamento, on_delete=models.CASCADE) # Conexión con Depto [cite: 22]
-    estado = models.BooleanField(default=True) # [cite: 23]
+    # Validador de Cédula Dominicana (Exactamente 11 dígitos, solo números)
+    cedula_validador = RegexValidator(
+        regex=r'^\d{11}$',
+        message='La cédula debe tener exactamente 11 dígitos numéricos, sin guiones.'
+    )
+    cedula = models.CharField(max_length=11, unique=True, validators=[cedula_validador])
+    nombre = models.CharField(max_length=100)
+    departamento = models.ForeignKey(Departamento, on_delete=models.CASCADE)
+    estado = models.BooleanField(default=True)
 
     def __str__(self):
         return self.nombre
 
-# 6. Gestión de Artículos [cite: 9, 41]
+# 6. Gestión de Artículos
 class Articulo(models.Model):
-    descripcion = models.CharField(max_length=100) # [cite: 43]
-    marca = models.ForeignKey(Marca, on_delete=models.CASCADE) # Conexión con Marca [cite: 44]
-    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE) # Conexión con Unidad [cite: 45]
-    existencia = models.IntegerField(default=0) # [cite: 46]
-    estado = models.BooleanField(default=True) # [cite: 47]
+    descripcion = models.CharField(max_length=100)
+    marca = models.ForeignKey(Marca, on_delete=models.CASCADE)
+    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE)
+    # La existencia no puede ser negativa
+    existencia = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+    estado = models.BooleanField(default=True)
 
     def __str__(self):
         return self.descripcion
 
-# Tablas transaccionales (Solicitudes y Ordenes)
-class Solicitud(models.Model): # [cite: 13, 48]
-    empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE) # [cite: 50]
-    fecha_solicitud = models.DateField(auto_now_add=True) # [cite: 51]
-    articulo = models.ForeignKey(Articulo, on_delete=models.CASCADE) # [cite: 52]
-    cantidad = models.IntegerField() # [cite: 53]
-    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE) # [cite: 54]
-    estado = models.CharField(max_length=20, default='Pendiente') # [cite: 55]
+# Tablas transaccionales
+class Solicitud(models.Model):
+    empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)
+    fecha_solicitud = models.DateField(auto_now_add=True)
+    articulo = models.ForeignKey(Articulo, on_delete=models.CASCADE)
+    # La cantidad solicitada debe ser al menos 1
+    cantidad = models.IntegerField(validators=[MinValueValidator(1)])
+    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE)
+    estado = models.CharField(max_length=20, default='Pendiente')
 
-class OrdenCompra(models.Model): # [cite: 14, 56]
-    solicitud = models.OneToOneField(Solicitud, on_delete=models.CASCADE) # Conexión directa [cite: 58]
-    fecha_orden = models.DateField(auto_now_add=True) # [cite: 59]
-    estado = models.BooleanField(default=True) # [cite: 60]
-    articulo = models.ForeignKey(Articulo, on_delete=models.CASCADE) # [cite: 61]
-    cantidad = models.IntegerField() # [cite: 62]
-    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE) # [cite: 63]
-    costo_unitario = models.DecimalField(max_digits=10, decimal_places=2) # [cite: 65]
+class OrdenCompra(models.Model):
+    solicitud = models.OneToOneField(Solicitud, on_delete=models.CASCADE)
+    fecha_orden = models.DateField(auto_now_add=True)
+    estado = models.BooleanField(default=True)
+    articulo = models.ForeignKey(Articulo, on_delete=models.CASCADE)
+    # La cantidad debe ser al menos 1
+    cantidad = models.IntegerField(validators=[MinValueValidator(1)])
+    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE)
+    # El costo no puede ser negativo ni 0
+    costo_unitario = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
