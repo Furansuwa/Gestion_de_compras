@@ -104,30 +104,80 @@ class Articulo(models.Model):
     estado = models.BooleanField(default=True) # [cite: 47]
 
     def __str__(self):
-        return f"{self.descripcion} - {self.marca}"
-
-# 7. Transaccional: Solicitud de Artículos [cite: 13, 48]
+        return f"{self.descripcion} ({self.unidad_medida}) - {self.marca}"
+# --- 7. CABECERA: Solicitud ---
 class Solicitud(models.Model):
-    empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE) # [cite: 50]
-    fecha_solicitud = models.DateField(auto_now_add=True) # [cite: 51]
-    articulo = models.ForeignKey(Articulo, on_delete=models.CASCADE) # [cite: 52]
-    cantidad = models.IntegerField(validators=[MinValueValidator(1)]) # [cite: 53]
-    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE) # [cite: 54]
-    estado = models.CharField(max_length=20, default='Pendiente') # [cite: 55]
+    ESTADOS_SOLICITUD = [
+        ('Pendiente', 'Pendiente'),
+        ('Aprobada', 'Aprobada'),
+        ('Anulada', 'Anulada'),
+    ]
+    empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)
+    fecha_solicitud = models.DateField(auto_now_add=True)
+    estado = models.CharField(max_length=20, choices=ESTADOS_SOLICITUD, default='Pendiente')
 
     def __str__(self):
         return f"Solicitud #{self.id} - {self.empleado} - {self.estado}"
 
-# 8. Transaccional: Orden de Compra [cite: 14, 56]
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # MAGIA: Si se aprueba, creamos la orden y copiamos todos sus artículos
+        if self.estado == 'Aprobada' and not hasattr(self, 'ordencompra'):
+            nueva_orden = OrdenCompra.objects.create(solicitud=self)
+            
+            # Buscamos los artículos de esta solicitud y los pasamos a la orden
+            for detalle in self.detalles.all():
+                DetalleOrdenCompra.objects.create(
+                    orden_compra=nueva_orden,
+                    articulo=detalle.articulo,
+                    cantidad=detalle.cantidad,
+                    unidad_medida=detalle.unidad_medida
+                )
+
+# --- 7.1 DETALLE: Artículos de la Solicitud ---
+class DetalleSolicitud(models.Model):
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, related_name='detalles')
+    articulo = models.ForeignKey(Articulo, on_delete=models.CASCADE)
+    cantidad = models.IntegerField(validators=[MinValueValidator(1)])
+    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE)
+
+# --- 8. CABECERA: Orden de Compra ---
 class OrdenCompra(models.Model):
-    solicitud = models.OneToOneField(Solicitud, on_delete=models.CASCADE) # [cite: 58]
-    fecha_orden = models.DateField(auto_now_add=True) # [cite: 59]
-    estado = models.BooleanField(default=True) # [cite: 60]
-    articulo = models.ForeignKey(Articulo, on_delete=models.CASCADE) # [cite: 61]
-    cantidad = models.IntegerField(validators=[MinValueValidator(1)]) # [cite: 62]
-    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE) # [cite: 63]
-    marca = models.ForeignKey(Marca, on_delete=models.CASCADE) # [cite: 64, 69]
-    costo_unitario = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)]) # [cite: 65, 69]
+    ESTADOS_ORDEN = [
+        ('Generada', 'Generada (Falta Marca/Costo)'),
+        ('Aprobada', 'Aprobada (Sumar a Inventario)'), 
+    ]
+    solicitud = models.OneToOneField(Solicitud, on_delete=models.CASCADE)
+    fecha_orden = models.DateField(auto_now_add=True)
+    estado = models.CharField(max_length=20, choices=ESTADOS_ORDEN, default='Generada')
 
     def __str__(self):
         return f"Orden #{self.id} (Solicitud {self.solicitud.id})"
+
+    def save(self, *args, **kwargs):
+        es_nueva = self.pk is None
+        estado_anterior = None
+        if not es_nueva:
+            estado_anterior = OrdenCompra.objects.get(pk=self.pk).estado
+
+        super().save(*args, **kwargs)
+
+        if self.estado == 'Aprobada' and estado_anterior != 'Aprobada':
+            # Sumar al inventario TODOS los artículos de esta orden
+            for detalle in self.detalles.all():
+                art = detalle.articulo
+                art.existencia += detalle.cantidad
+                art.save()
+            
+            # Sincronizar solicitud original
+            if self.solicitud.estado != 'Aprobada':
+                Solicitud.objects.filter(pk=self.solicitud.pk).update(estado='Aprobada')
+
+# --- 8.1 DETALLE: Artículos de la Orden de Compra ---
+class DetalleOrdenCompra(models.Model):
+    orden_compra = models.ForeignKey(OrdenCompra, on_delete=models.CASCADE, related_name='detalles')
+    articulo = models.ForeignKey(Articulo, on_delete=models.CASCADE)
+    cantidad = models.IntegerField(validators=[MinValueValidator(1)])
+    unidad_medida = models.ForeignKey(UnidadMedida, on_delete=models.CASCADE)
+    marca = models.ForeignKey(Marca, on_delete=models.CASCADE, null=True, blank=True)
+    costo_unitario = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)], null=True, blank=True)
